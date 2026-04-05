@@ -1,20 +1,19 @@
+const express = require("express");
+const cors = require("cors");
+const mysql = require("mysql2/promise");
 const jwt = require("jsonwebtoken");
-const SECRET = "123456";
 
 require("dotenv").config();
 
-const express = require("express");
-const cors = require("cors");
-const mysql = require("mysql2/promise"); // dùng promise cho async/await
-
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
 // =======================
-// 🔒 JWT Token + Role
+// 🔐 JWT + Role
 // =======================
+const SECRET = "123456";
+
 const verifyToken = (req, res, next) => {
   const token = req.headers["authorization"];
   if (!token) return res.status(403).json({ message: "Không có token" });
@@ -36,18 +35,18 @@ const checkRole = (roles) => {
 };
 
 // =======================
-// 🔥 MYSQL POOL CONNECTION
+// 🔥 MYSQL POOL CONNECTION (Serverless safe)
 // =======================
 const pool = mysql.createPool({
-  host: process.env.MYSQLHOST,
-  user: process.env.MYSQLUSER,
+  host: process.env.MYSQLHOST,       // junction.proxy.rlwy.net
+  user: process.env.MYSQLUSER,       // root
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT || 3306,
+  port: process.env.MYSQLPORT,       // 12261
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  ssl: { rejectUnauthorized: true } // bắt buộc nếu Railway yêu cầu SSL
+  ssl: { rejectUnauthorized: true } // Railway yêu cầu SSL
 });
 
 // =======================
@@ -63,13 +62,11 @@ app.get("/", (req, res) => {
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
-  // ADMIN
   if (email === "admin@gmail.com" && password === "123456") {
     const token = jwt.sign({ email, role: "admin" }, SECRET, { expiresIn: "1h" });
     return res.json({ message: "Đăng nhập admin", token, role: "admin" });
   }
 
-  // USER
   if (email === "user@gmail.com" && password === "123456") {
     const token = jwt.sign({ email, role: "user" }, SECRET, { expiresIn: "1h" });
     return res.json({ message: "Đăng nhập user", token, role: "user" });
@@ -111,12 +108,12 @@ app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
   const { name, email, position, avatar, joinDate } = req.body;
   if (!name || !email) return res.status(400).json({ message: "Thiếu name hoặc email" });
 
-  const sql = `
-    INSERT INTO users (name, email, position, avatar, joinDate)
-    VALUES (?, ?, ?, ?, ?)
-  `;
   try {
-    const [result] = await pool.query(sql, [name, email, position, avatar, joinDate || null]);
+    const [result] = await pool.query(
+      `INSERT INTO users (name, email, position, avatar, joinDate)
+       VALUES (?, ?, ?, ?, ?)`,
+      [name, email, position, avatar, joinDate || null]
+    );
     res.json({ message: "Thêm user thành công", id: result.insertId });
   } catch (err) {
     console.error(err);
@@ -128,14 +125,13 @@ app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
 app.put("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
   const id = req.params.id;
   const { name, email, position, avatar, joinDate } = req.body;
-
-  const sql = `
-    UPDATE users
-    SET name = ?, email = ?, position = ?, avatar = ?, joinDate = ?
-    WHERE id = ?
-  `;
   try {
-    await pool.query(sql, [name, email, position, avatar, joinDate || null, id]);
+    await pool.query(
+      `UPDATE users
+       SET name = ?, email = ?, position = ?, avatar = ?, joinDate = ?
+       WHERE id = ?`,
+      [name, email, position, avatar, joinDate || null, id]
+    );
     res.json({ message: "Cập nhật thành công" });
   } catch (err) {
     console.error(err);
