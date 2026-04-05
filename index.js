@@ -253,7 +253,8 @@ app.post("/checkout", verifyToken, (req, res) => {
 // =======================
 // START SERVER
 // =======================
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
-  console.log(`🚀 Server chạy tại http://localhost:${PORT}`);
+  console.log(`🚀 Server chạy tại port ${PORT}`);
 });
