@@ -5,31 +5,12 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql2");
+const mysql = require("mysql2/promise"); // dùng promise cho async/await
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// =======================
-// 🔥 KẾT NỐI MYSQL
-// =======================
-const db = mysql.createConnection({
-  host: process.env.MYSQLHOST,
-  user: process.env.MYSQLUSER,
-  password: process.env.MYSQLPASSWORD,
-  database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT
-});
-
-db.connect((err) => {
-  if (err) {
-    console.log("❌ Lỗi kết nối DB:", err);
-  } else {
-    console.log("✅ Kết nối DB thành công!");
-  }
-});
 
 // =======================
 // 🔐 LOGIN (🔥 THÊM ROLE)
@@ -110,151 +91,173 @@ app.get("/", (req, res) => {
 });
 
 // =======================
-// 🔥 GET ALL USERS (ai cũng xem được)
+// 🔥 MYSQL CONNECTION HELPER
 // =======================
-app.get("/users", verifyToken, (req, res) => {
-  db.query("SELECT * FROM users", (err, result) => {
-    if (err) {
-      console.log(err);
-      return res.status(500).json({ error: "Lỗi server" });
-    }
-    res.json(result);
+const getConnection = async () => {
+  return await mysql.createConnection({
+    host: process.env.MYSQLHOST,
+    user: process.env.MYSQLUSER,
+    password: process.env.MYSQLPASSWORD,
+    database: process.env.MYSQLDATABASE,
+    port: process.env.MYSQLPORT || 3306,
+    ssl: { rejectUnauthorized: true } // nếu Railway yêu cầu SSL
   });
+};
+
+// =======================
+// 🔥 GET ALL USERS
+// =======================
+app.get("/users", verifyToken, async (req, res) => {
+  let connection;
+  try {
+    connection = await getConnection();
+    const [rows] = await connection.execute("SELECT * FROM users");
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Lỗi server" });
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
 // 🔥 GET USER BY ID
 // =======================
-app.get("/users/:id", verifyToken, (req, res) => {
+app.get("/users/:id", verifyToken, async (req, res) => {
   const id = req.params.id;
+  let connection;
+  try {
+    connection = await getConnection();
+    const [rows] = await connection.execute("SELECT * FROM users WHERE id = ?", [id]);
 
-  db.query("SELECT * FROM users WHERE id = ?", [id], (err, result) => {
-    if (err) {
-      return res.status(500).json({ error: "Lỗi server" });
-    }
+    if (rows.length === 0) return res.status(404).json({ message: "User không tồn tại" });
 
-    if (result.length === 0) {
-      return res.status(404).json({ message: "User không tồn tại" });
-    }
-
-    res.json(result[0]);
-  });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Lỗi server" });
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
-// 🔥 CREATE USER (CHỈ ADMIN)
+// 🔥 CREATE USER
 // =======================
-app.post("/users", verifyToken, checkRole(["admin"]), (req, res) => {
+app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
   const { name, email, position, avatar, joinDate } = req.body;
 
-  if (!name || !email) {
-    return res.status(400).json({ message: "Thiếu name hoặc email" });
-  }
+  if (!name || !email) return res.status(400).json({ message: "Thiếu name hoặc email" });
 
   const sql = `
     INSERT INTO users (name, email, position, avatar, joinDate)
     VALUES (?, ?, ?, ?, ?)
   `;
-
-  db.query(
-    sql,
-    [name, email, position, avatar, joinDate || null],
-    (err, result) => {
-      if (err) {
-        console.log(err);
-        return res.status(500).json({ error: "Lỗi thêm user" });
-      }
-
-      res.json({
-        message: "Thêm user thành công",
-        id: result.insertId
-      });
-    }
-  );
+  let connection;
+  try {
+    connection = await getConnection();
+    const [result] = await connection.execute(sql, [name, email, position, avatar, joinDate || null]);
+    res.json({ message: "Thêm user thành công", id: result.insertId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Lỗi thêm user" });
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
-// 🔥 UPDATE USER (CHỈ ADMIN)
+// 🔥 UPDATE USER
 // =======================
-app.put("/users/:id", verifyToken, checkRole(["admin"]), (req, res) => {
+app.put("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
   const id = req.params.id;
   const { name, email, position, avatar, joinDate } = req.body;
-
   const sql = `
     UPDATE users
     SET name = ?, email = ?, position = ?, avatar = ?, joinDate = ?
     WHERE id = ?
   `;
-
-  db.query(
-    sql,
-    [name, email, position, avatar, joinDate || null, id],
-    (err) => {
-      if (err) {
-        console.log("SQL ERROR:", err);
-        return res.status(500).json({ error: "Lỗi update user" });
-      }
-
-      res.json({ message: "Cập nhật thành công" });
-    }
-  );
+  let connection;
+  try {
+    connection = await getConnection();
+    await connection.execute(sql, [name, email, position, avatar, joinDate || null, id]);
+    res.json({ message: "Cập nhật thành công" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Lỗi update user" });
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
-// 🔥 DELETE USER (CHỈ ADMIN)
+// 🔥 DELETE USER
 // =======================
-app.delete("/users/:id", verifyToken, checkRole(["admin"]), (req, res) => {
+app.delete("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
   const id = req.params.id;
-
-  db.query("DELETE FROM users WHERE id = ?", [id], (err) => {
-    if (err) {
-      return res.status(500).json({ error: "Lỗi xóa user" });
-    }
-
+  let connection;
+  try {
+    connection = await getConnection();
+    await connection.execute("DELETE FROM users WHERE id = ?", [id]);
     res.json({ message: "Xóa thành công" });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Lỗi xóa user" });
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
-// ⏱️ CHECK IN (AI CŨNG DÙNG ĐƯỢC)
+// ⏱️ CHECK IN
 // =======================
-app.post("/checkin", verifyToken, (req, res) => {
+app.post("/checkin", verifyToken, async (req, res) => {
   const { user_id } = req.body;
-
   const sql = `
     INSERT INTO attendance (user_id, date, check_in)
     VALUES (?, CURDATE(), CURTIME())
   `;
-
-  db.query(sql, [user_id], (err) => {
-    if (err) return res.status(500).json(err);
+  let connection;
+  try {
+    connection = await getConnection();
+    await connection.execute(sql, [user_id]);
     res.json({ message: "Check-in thành công" });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json(err);
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
 // ⏱️ CHECK OUT
 // =======================
-app.post("/checkout", verifyToken, (req, res) => {
+app.post("/checkout", verifyToken, async (req, res) => {
   const { user_id } = req.body;
-
   const sql = `
     UPDATE attendance
     SET check_out = CURTIME()
     WHERE user_id = ? AND date = CURDATE()
   `;
-
-  db.query(sql, [user_id], (err) => {
-    if (err) return res.status(500).json(err);
+  let connection;
+  try {
+    connection = await getConnection();
+    await connection.execute(sql, [user_id]);
     res.json({ message: "Check-out thành công" });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json(err);
+  } finally {
+    if (connection) await connection.end();
+  }
 });
 
 // =======================
 // START SERVER
 // =======================
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`🚀 Server chạy tại port ${PORT}`);
 });
