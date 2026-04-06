@@ -12,7 +12,7 @@ app.use(express.json());
 // =======================
 // 🔐 JWT + Role
 // =======================
-const SECRET = "123456";
+const SECRET = process.env.SECRET;
 
 const verifyToken = (req, res, next) => {
   const token = req.headers["authorization"];
@@ -35,18 +35,18 @@ const checkRole = (roles) => {
 };
 
 // =======================
-// 🔥 MYSQL POOL CONNECTION (Serverless safe)
+// 🔥 MYSQL POOL CONNECTION (Railway)
 // =======================
 const pool = mysql.createPool({
-  host: process.env.MYSQLHOST,       // junction.proxy.rlwy.net
-  user: process.env.MYSQLUSER,       // root
+  host: process.env.MYSQLHOST,
+  user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT,       // 12261
+  port: process.env.MYSQLPORT,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  ssl: { rejectUnauthorized: true } // Railway yêu cầu SSL
+  queueLimit: 0
+  // ❌ bỏ SSL để tránh lỗi Railway free
 });
 
 // =======================
@@ -148,38 +148,6 @@ app.delete("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => 
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Lỗi xóa user" });
-  }
-});
-
-// =======================
-// ⏱️ CHECK IN
-// =======================
-app.post("/checkin", verifyToken, async (req, res) => {
-  const { user_id } = req.body;
-  try {
-    await pool.query(
-      "INSERT INTO attendance (user_id, date, check_in) VALUES (?, CURDATE(), CURTIME())",
-      [user_id]
-    );
-    res.json({ message: "Check-in thành công" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json(err);
-  }
-});
-
-// ⏱️ CHECK OUT
-app.post("/checkout", verifyToken, async (req, res) => {
-  const { user_id } = req.body;
-  try {
-    await pool.query(
-      "UPDATE attendance SET check_out = CURTIME() WHERE user_id = ? AND date = CURDATE()",
-      [user_id]
-    );
-    res.json({ message: "Check-out thành công" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json(err);
   }
 });
 
