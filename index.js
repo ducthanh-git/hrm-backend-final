@@ -43,7 +43,7 @@ const verifyToken = (req, res, next) => {
     req.user = decoded;
     next();
   });
-};
+;
 
 const checkRole = (roles) => {
   return (req, res, next) => {
