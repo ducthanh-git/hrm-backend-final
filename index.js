@@ -12,8 +12,9 @@ app.use(express.json());
 // =======================
 // 🔐 JWT + Role
 // =======================
-const SECRET = process.env.SECRET;
+const SECRET = process.env.SECRET || "123456";
 
+// Middleware verify token
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
 
@@ -21,7 +22,7 @@ const verifyToken = (req, res, next) => {
     return res.status(403).json({ message: "Không có token" });
   }
 
-  const token = authHeader.split(" ")[1]; // 🔥 BỎ "Bearer"
+  const token = authHeader.split(" ")[1];
 
   if (!token) {
     return res.status(401).json({ message: "Token không hợp lệ" });
@@ -36,15 +37,8 @@ const verifyToken = (req, res, next) => {
     next();
   });
 };
-  if (!token) return res.status(403).json({ message: "Không có token" });
 
-  jwt.verify(token, SECRET, (err, decoded) => {
-    if (err) return res.status(401).json({ message: "Token không hợp lệ" });
-    req.user = decoded;
-    next();
-  });
-;
-
+// Middleware check role
 const checkRole = (roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -55,7 +49,7 @@ const checkRole = (roles) => {
 };
 
 // =======================
-// 🔥 MYSQL POOL CONNECTION (Railway)
+// 🔥 MYSQL CONNECTION
 // =======================
 const pool = mysql.createPool({
   host: process.env.MYSQLHOST,
@@ -66,14 +60,13 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
-  // ❌ bỏ SSL để tránh lỗi Railway free
 });
 
 // =======================
-// TEST
+// TEST API
 // =======================
 app.get("/", (req, res) => {
-  res.send("HRM Backend API running");
+  res.send("🚀 HRM Backend API running");
 });
 
 // =======================
@@ -115,7 +108,11 @@ app.get("/users/:id", verifyToken, async (req, res) => {
   const id = req.params.id;
   try {
     const [rows] = await pool.query("SELECT * FROM users WHERE id = ?", [id]);
-    if (rows.length === 0) return res.status(404).json({ message: "User không tồn tại" });
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User không tồn tại" });
+    }
+
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -126,7 +123,10 @@ app.get("/users/:id", verifyToken, async (req, res) => {
 // CREATE USER
 app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
   const { name, email, position, avatar, joinDate } = req.body;
-  if (!name || !email) return res.status(400).json({ message: "Thiếu name hoặc email" });
+
+  if (!name || !email) {
+    return res.status(400).json({ message: "Thiếu name hoặc email" });
+  }
 
   try {
     const [result] = await pool.query(
@@ -134,6 +134,7 @@ app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`,
       [name, email, position, avatar, joinDate || null]
     );
+
     res.json({ message: "Thêm user thành công", id: result.insertId });
   } catch (err) {
     console.error(err);
@@ -145,6 +146,7 @@ app.post("/users", verifyToken, checkRole(["admin"]), async (req, res) => {
 app.put("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
   const id = req.params.id;
   const { name, email, position, avatar, joinDate } = req.body;
+
   try {
     await pool.query(
       `UPDATE users
@@ -152,6 +154,7 @@ app.put("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
        WHERE id = ?`,
       [name, email, position, avatar, joinDate || null, id]
     );
+
     res.json({ message: "Cập nhật thành công" });
   } catch (err) {
     console.error(err);
@@ -162,6 +165,7 @@ app.put("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
 // DELETE USER
 app.delete("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => {
   const id = req.params.id;
+
   try {
     await pool.query("DELETE FROM users WHERE id = ?", [id]);
     res.json({ message: "Xóa thành công" });
@@ -175,6 +179,7 @@ app.delete("/users/:id", verifyToken, checkRole(["admin"]), async (req, res) => 
 // START SERVER
 // =======================
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
   console.log(`🚀 Server chạy tại port ${PORT}`);
 });
