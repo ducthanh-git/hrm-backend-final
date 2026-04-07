@@ -15,7 +15,27 @@ app.use(express.json());
 const SECRET = process.env.SECRET;
 
 const verifyToken = (req, res, next) => {
-  const token = req.headers["authorization"];
+  const authHeader = req.headers["authorization"];
+
+  if (!authHeader) {
+    return res.status(403).json({ message: "Không có token" });
+  }
+
+  const token = authHeader.split(" ")[1]; // 🔥 BỎ "Bearer"
+
+  if (!token) {
+    return res.status(401).json({ message: "Token không hợp lệ" });
+  }
+
+  jwt.verify(token, SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).json({ message: "Token không hợp lệ" });
+    }
+
+    req.user = decoded;
+    next();
+  });
+};
   if (!token) return res.status(403).json({ message: "Không có token" });
 
   jwt.verify(token, SECRET, (err, decoded) => {
